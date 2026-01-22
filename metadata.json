@@ -1,0 +1,7 @@
+{
+  "name": "BradwearFlow",
+  "description": "A modern fintech-style application for tailors to track orders, scan work details using AI, and manage productivity with analytics.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
