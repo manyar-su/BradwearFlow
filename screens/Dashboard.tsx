@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { Search, Package, Clock, Sun, Moon, BellRing, Target, ArrowUpRight, ChevronRight, ChevronDown, AlertCircle, X, Info, User, Calendar, Scissors, ShieldCheck, Lock, Shield, Flame, PlusCircle, Layers, DollarSign, History, BarChart2, Send, UserCheck, Sparkles, Trash2 } from 'lucide-react';
-import { OrderItem, JobStatus, Priority } from '../types';
+import { OrderItem, JobStatus, Priority, PaymentStatus } from '../types';
 import { format, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isSameDay, addDays, isBefore, startOfDay } from 'date-fns';
 import { id as idLocale } from 'date-fns/locale/id';
 import { syncService } from '../services/syncService';
@@ -202,15 +202,15 @@ const Calendar3D = ({ orders, isDarkMode }: { orders: OrderItem[], isDarkMode: b
       return targetDate && isBefore(targetDate, today);
     });
 
-    if (isLate) return { bg: 'bg-red-500 shadow-md shadow-red-500/30', text: 'text-white' };
+    if (isLate) return { bg: 'bg-red-500 shadow-md shadow-red-500/30', text: 'text-white', pulse: 'animate-pulse-fast' };
 
     const daysLeft = differenceInDays(date, today);
 
-    if (daysLeft < 0) return { bg: 'bg-red-500 shadow-md shadow-red-500/30', text: 'text-white' };
-    if (daysLeft >= 3) return { bg: 'bg-emerald-500 shadow-md shadow-emerald-500/30', text: 'text-white' };
-    if (daysLeft < 3 && daysLeft >= 0) return { bg: 'bg-orange-500 shadow-md shadow-orange-500/30', text: 'text-white' };
+    if (daysLeft < 0) return { bg: 'bg-red-500 shadow-md shadow-red-500/30', text: 'text-white', pulse: 'animate-pulse-fast' };
+    if (daysLeft >= 3) return { bg: 'bg-emerald-500 shadow-md shadow-emerald-500/30', text: 'text-white', pulse: '' };
+    if (daysLeft < 3 && daysLeft >= 0) return { bg: 'bg-orange-500 shadow-md shadow-orange-500/30', text: 'text-white', pulse: 'animate-pulse-slow' };
 
-    return { bg: '', text: '' };
+    return { bg: '', text: '', pulse: '' };
   };
 
   return (
@@ -241,13 +241,13 @@ const Calendar3D = ({ orders, isDarkMode }: { orders: OrderItem[], isDarkMode: b
         {blanks.map((_, i) => <div key={`blank-${i}`} />)}
         {days.map((day, i) => {
           const dayOrders = getOrdersForDay(day);
-          const { bg: colorClass, text: textColorClass } = getDayStatusColor(day, dayOrders);
+          const { bg: colorClass, text: textColorClass, pulse: pulseClass } = getDayStatusColor(day, dayOrders);
           const isToday = isSameDay(day, today);
 
           return (
             <div
               key={i}
-              className={`relative flex flex-col items-center justify-center p-1 rounded-xl transition-all duration-300 group h-12 ${colorClass ? `${colorClass} scale-105 z-10` : isDarkMode ? 'bg-slate-900/50 hover:bg-slate-900' : 'bg-slate-50 hover:bg-slate-100'} ${isToday ? 'border-2 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : ''}`}
+              className={`relative flex flex-col items-center justify-center p-1 rounded-xl transition-all duration-300 group h-12 ${colorClass ? `${colorClass} scale-105 z-10 ${pulseClass}` : isDarkMode ? 'bg-slate-900/50 hover:bg-slate-900' : 'bg-slate-50 hover:bg-slate-100'} ${isToday ? 'border-2 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : ''}`}
             >
               <span className={`text-[11px] font-black leading-tight ${colorClass ? 'text-white' : isToday ? 'text-emerald-600' : isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
                 {format(day, 'd')}
@@ -303,9 +303,38 @@ const Dashboard: React.FC<DashboardProps> = ({ orders, searchQuery, setSearchQue
   const [fullUserResults, setFullUserResults] = useState<OrderItem[]>([]);
   const [searchedUserName, setSearchedUserName] = useState('');
 
+  // ── Deadline popup state ──────────────────────────────────────
+  const [overduePopupOrders, setOverduePopupOrders] = useState<OrderItem[]>([]);
+  const [showOverduePopup, setShowOverduePopup] = useState(false);
+
   const activeOnly = useMemo(() => orders.filter(o => !o.deletedAt), [orders]);
 
   const getProfileName = () => localStorage.getItem('profileName')?.toLowerCase().trim() || 'nama anda';
+
+  // ── Cek order yang sudah 3+ hari melewati deadline dan belum selesai ──
+  useEffect(() => {
+    const popupShownKey = 'bradwear_overdue_popup_shown';
+    const lastShown = localStorage.getItem(popupShownKey);
+    const today = new Date();
+    const todayStr = format(today, 'yyyy-MM-dd');
+
+    // Hanya tampilkan sekali per hari
+    if (lastShown === todayStr) return;
+
+    const overdue = orders.filter(o => {
+      if (o.deletedAt || o.status === JobStatus.BERES) return false;
+      const targetDate = parseIndoDate(o.tanggalTargetSelesai);
+      if (!targetDate) return false;
+      const daysOverdue = differenceInDays(today, targetDate);
+      return daysOverdue >= 3; // sudah 3+ hari melewati deadline
+    });
+
+    if (overdue.length > 0) {
+      setOverduePopupOrders(overdue);
+      setShowOverduePopup(true);
+      localStorage.setItem(popupShownKey, todayStr);
+    }
+  }, [orders]);
 
   useEffect(() => {
     const searchGlobal = async () => {
@@ -406,6 +435,87 @@ const Dashboard: React.FC<DashboardProps> = ({ orders, searchQuery, setSearchQue
 
   return (
     <div className="relative animate-in fade-in duration-500">
+      {/* ── CSS animasi bernafas ── */}
+      <style>{`
+        @keyframes breatheSlow {
+          0%, 100% { opacity: 1; box-shadow: 0 0 8px 2px rgba(249,115,22,0.5); }
+          50% { opacity: 0.75; box-shadow: 0 0 18px 6px rgba(249,115,22,0.8); }
+        }
+        @keyframes breatheFast {
+          0%, 100% { opacity: 1; box-shadow: 0 0 8px 2px rgba(239,68,68,0.5); }
+          50% { opacity: 0.7; box-shadow: 0 0 20px 8px rgba(239,68,68,0.9); }
+        }
+        .animate-pulse-slow { animation: breatheSlow 2.5s ease-in-out infinite; }
+        .animate-pulse-fast { animation: breatheFast 1.2s ease-in-out infinite; }
+      `}</style>
+
+      {/* ── Modal Deadline 3+ Hari ── */}
+      {showOverduePopup && overduePopupOrders.length > 0 && (
+        <div className="fixed inset-0 z-[200] flex items-start justify-center pt-16 px-5 pb-5 bg-black/60 backdrop-blur-sm animate-in fade-in zoom-in duration-300">
+          <div className={`w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden ${isDarkMode ? 'bg-slate-900 border border-slate-700' : 'bg-white'}`}>
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-500 to-orange-500 p-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                  <AlertCircle size={22} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white uppercase tracking-wide">Cek Status Deadline!</h3>
+                  <p className="text-[9px] text-white/70 font-bold uppercase">Order berikut sudah 3+ hari melewati deadline</p>
+                </div>
+              </div>
+            </div>
+
+            {/* List order overdue */}
+            <div className="p-4 space-y-2 max-h-52 overflow-y-auto">
+              {overduePopupOrders.map(o => {
+                const targetDate = parseIndoDate(o.tanggalTargetSelesai);
+                const daysOver = targetDate ? differenceInDays(new Date(), targetDate) : 0;
+                return (
+                  <div key={o.id} className={`flex items-center justify-between px-3 py-2.5 rounded-xl border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-red-50 border-red-100'}`}>
+                    <div>
+                      <span className="text-xs font-black text-red-500">{o.kodeBarang}</span>
+                      <p className="text-[8px] font-bold text-slate-400 uppercase">{o.konsumen || '-'} • {o.model}</p>
+                    </div>
+                    <span className="text-[8px] font-black text-red-400 bg-red-100 px-2 py-1 rounded-lg">+{daysOver} hari</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Pertanyaan */}
+            <div className={`px-4 pb-2 pt-1 border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-100'}`}>
+              <p className={`text-[10px] font-black uppercase text-center mb-3 ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+                Apakah order di atas sudah selesai?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    // Tandai semua sebagai Selesai & Lunas
+                    overduePopupOrders.forEach(o => {
+                      if (onUpdateStatus) onUpdateStatus(o.id, JobStatus.BERES);
+                      if (onUpdateOrder) onUpdateOrder({ ...o, status: JobStatus.BERES, paymentStatus: PaymentStatus.BAYAR, completedAt: new Date().toISOString() });
+                    });
+                    setShowOverduePopup(false);
+                    setOverduePopupOrders([]);
+                  }}
+                  className="flex-1 py-3 bg-emerald-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-500/20 active:scale-95 transition-all"
+                >
+                  ✓ Ya, Sudah Selesai
+                </button>
+                <button
+                  onClick={() => setShowOverduePopup(false)}
+                  className={`flex-1 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all ${isDarkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}
+                >
+                  Belum
+                </button>
+              </div>
+              <p className="text-[7px] text-slate-400 text-center mt-2 pb-1">Jika Ya, order akan pindah ke Selesai & Lunas di History</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedOrder && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in zoom-in duration-300">
           <div className={`relative w-full max-sm rounded-[3rem] p-8 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden ${isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}`}>
@@ -694,33 +804,30 @@ const Dashboard: React.FC<DashboardProps> = ({ orders, searchQuery, setSearchQue
         </div>
       )}
 
-      <div className={`sticky top-0 z-30 px-6 py-4 flex justify-between items-center backdrop-blur-md border-b transition-colors ${isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50/80 border-slate-200'}`}>
-        <div className="flex items-center gap-3">
-          <div className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 ${isDarkMode ? 'border-slate-700 bg-slate-800 shadow-[0_0_10px_rgba(57,255,20,0.2)]' : 'border-slate-100 bg-white shadow-sm'}`}>
-            {/* Neon Icon Style Header */}
-            <div className="w-6 h-6 bg-black rounded flex items-center justify-center p-0.5 border border-[#39FF14]/50">
-              <span className="text-[6px] font-black leading-none text-center" style={{ color: '#39FF14', textShadow: '0 0 2px #39FF14' }}>BRAD<br />WEAR</span>
-            </div>
-            <span className={`text-sm font-black ${isDarkMode ? 'text-[#39FF14]' : 'text-[#10b981]'}`}>{format(new Date(), 'HH:mm')}</span>
-          </div>
-          <div>
-            <h2 className={`text-lg font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Bradwear Flow</h2>
-          </div>
-        </div>
+      <div className={`sticky top-0 z-30 mt-[10px] px-4 py-2 flex justify-between items-center backdrop-blur-md border-b transition-colors ${isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50/80 border-slate-200'}`}>
         <div className="flex items-center gap-2">
+          <div className={`px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${isDarkMode ? 'border-slate-700 bg-slate-800 shadow-[0_0_8px_rgba(57,255,20,0.15)]' : 'border-slate-100 bg-white shadow-sm'}`}>
+            <div className="w-5 h-5 bg-black rounded flex items-center justify-center p-0.5 border border-[#39FF14]/50">
+              <span className="text-[5px] font-black leading-none text-center" style={{ color: '#39FF14', textShadow: '0 0 2px #39FF14' }}>BRAD<br />WEAR</span>
+            </div>
+            <span className={`text-xs font-black ${isDarkMode ? 'text-[#39FF14]' : 'text-[#10b981]'}`}>{format(new Date(), 'HH:mm')}</span>
+          </div>
+          <h2 className={`text-sm font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Bradwear Flow</h2>
+        </div>
+        <div className="flex items-center gap-1.5">
           <button
             onClick={onShowNotifications}
-            className={`relative p-2.5 rounded-xl shadow-sm border transition-all active:scale-90 ${isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-white text-slate-500 border-slate-100'}`}
+            className={`relative p-2 rounded-lg shadow-sm border transition-all active:scale-90 ${isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-white text-slate-500 border-slate-100'}`}
           >
-            <BellRing size={18} className={unreadCount > 0 ? 'animate-bounce text-emerald-500' : ''} />
+            <BellRing size={16} className={unreadCount > 0 ? 'animate-bounce text-emerald-500' : ''} />
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[7px] font-black border border-white shadow-sm">
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 text-white rounded-full flex items-center justify-center text-[6px] font-black border border-white shadow-sm">
                 {unreadCount}
               </span>
             )}
           </button>
-          <button onClick={toggleDarkMode} className={`p-2.5 rounded-xl shadow-sm border transition-all active:scale-90 ${isDarkMode ? 'bg-slate-800 text-amber-400 border-slate-700' : 'bg-white text-slate-500 border-slate-100'}`}>
-            {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
+          <button onClick={toggleDarkMode} className={`p-2 rounded-lg shadow-sm border transition-all active:scale-90 ${isDarkMode ? 'bg-slate-800 text-amber-400 border-slate-700' : 'bg-white text-slate-500 border-slate-100'}`}>
+            {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
           </button>
         </div>
       </div>
@@ -731,7 +838,9 @@ const Dashboard: React.FC<DashboardProps> = ({ orders, searchQuery, setSearchQue
       <div className="p-6 space-y-6 flex flex-col items-center">
         {/* Hero Section */}
         <div className="w-full max-sm text-center mb-2 animate-in fade-in slide-in-from-top-4 duration-700">
-          <h1 className={`text-2xl font-black tracking-tighter mb-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Halo, Penjahit Hebat!</h1>
+          <h1 className={`text-2xl font-black tracking-tighter mb-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            Halo, {localStorage.getItem('profileName') || 'Penjahit'}!
+          </h1>
           <p className="text-[10px] font-black uppercase text-emerald-500 tracking-[0.2em]">Tetap Semangat & Pantau Target Produksi</p>
         </div>
 

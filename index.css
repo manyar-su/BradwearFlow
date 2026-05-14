@@ -7,6 +7,9 @@ body {
     -webkit-tap-highlight-color: transparent;
     margin: 0;
     padding: 0;
+    /* GPU compositing untuk seluruh halaman */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 .glass {
@@ -48,11 +51,34 @@ body {
 html {
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
+    /* Paksa 60fps rendering */
+    text-rendering: optimizeSpeed;
 }
 
-.smooth-scroll {
+/* Scroll container utama — momentum scroll + GPU layer */
+.smooth-scroll,
+.no-scrollbar {
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+/* Semua elemen animasi pakai GPU */
+[class*="animate-"],
+[class*="transition-"],
+[class*="duration-"] {
+    will-change: transform, opacity;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+}
+
+/* Sticky header tidak menyebabkan repaint */
+[class*="sticky"] {
+    will-change: transform;
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
 }
 
 /* Item Move Animation */
@@ -109,4 +135,4 @@ html {
 }
 .table-row-animate:hover {
     background-color: rgba(16, 185, 129, 0.05);
-}
+}

@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { Search, Trash2, CheckCircle, Send, FileText, Info, Calendar, User, UserCheck, X, Package, ShieldCheck, Clock, Filter, CalendarDays, ArrowUpDown, ListFilter, CloudUpload, Globe, Edit3, CreditCard, Wallet, AlertCircle, Lock, DollarSign, Sparkles, Layers, RotateCcw, AlertTriangle, ChevronDown } from 'lucide-react';
 import { PRICE_LIST as DEFAULT_PRICE_LIST, OrderItem, JobStatus, Priority, PaymentStatus } from '../types';
 import { syncService } from '../services/syncService';
@@ -34,9 +35,29 @@ const HistoryScreen: React.FC<HistoryScreenProps> = ({ orders, onDelete, onBulkD
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [filterMode, setFilterMode] = useState<FilterMode>('SEMUA');
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<OrderItem | null>(null);
+  const [isModalClosing, setIsModalClosing] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEarningOrder, setSelectedEarningOrder] = useState<OrderItem | null>(null);
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const closeModal = () => {
+    setIsModalClosing(true);
+    setIsModalOpen(false);
+    setTimeout(() => {
+      setSelectedOrderDetails(null);
+      setIsModalClosing(false);
+    }, 320);
+  };
+
+  // Trigger open animation setelah mount
+  React.useEffect(() => {
+    if (selectedOrderDetails) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setIsModalOpen(true));
+      });
+    }
+  }, [selectedOrderDetails?.id]);
   const itemsRef = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   React.useEffect(() => {
@@ -57,7 +78,14 @@ const HistoryScreen: React.FC<HistoryScreenProps> = ({ orders, onDelete, onBulkD
 
   const processedOrders = useMemo(() => {
     const now = new Date();
-    let filtered = orders.filter(o => {
+    // Deduplicate: hapus duplikat berdasarkan id saja
+    const seenIds = new Set<string>();
+    const deduped = orders.filter(o => {
+      if (seenIds.has(o.id)) return false;
+      seenIds.add(o.id);
+      return true;
+    });
+    let filtered = deduped.filter(o => {
       const matchSearch =
         o.kodeBarang.toLowerCase().includes(searchQuery.toLowerCase()) ||
         o.namaPenjahit.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -208,38 +236,34 @@ const HistoryScreen: React.FC<HistoryScreenProps> = ({ orders, onDelete, onBulkD
     const selected = orders.filter(o => selectedIds.has(o.id));
     if (selected.length === 0) return;
     
-    // PERBAIKAN: Tampilkan warning sebelum memindahkan ke history selesai
     triggerConfirm({
       title: 'Kirim ke WhatsApp?',
-      message: `${selected.length} item akan dikirim ke WhatsApp dan otomatis dipindahkan ke History Selesai & Lunas. Lanjutkan?`,
+      message: `${selected.length} item akan dikirim ke WhatsApp dan status pembayaran otomatis berubah menjadi Lunas. Lanjutkan?`,
       type: 'warning',
       onConfirm: () => {
-        // Akumulasi total per model+tangan untuk ringkasan akhir
         const modelTanganTotals: Record<string, number> = {};
         let grandTotal = 0;
 
-        const tanggal = format(new Date(), 'd MMM yyyy', { locale: idLocale });
-        let text = `*REKAPAN KERJA BRADWEAR*\n`;
-        text += `📅 ${tanggal}\n`;
-        text += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+        const tanggal = format(new Date(), 'EEEE, d MMMM yyyy', { locale: idLocale });
+        const jam = format(new Date(), 'HH:mm', { locale: idLocale });
+
+        let text = '';
+        text += `╔══════════════════════╗\n`;
+        text += `║  🧵 *REKAPAN BRADWEAR* 🧵  ║\n`;
+        text += `╚══════════════════════╝\n`;
+        text += `📅 *${tanggal}*\n`;
+        text += `🕐 Dikirim pukul ${jam} WIB\n`;
+        text += `\n`;
 
         selected.forEach((o, idx) => {
           let panjangQty = 0, pendekQty = 0;
-
-          text += `*${idx + 1}. ${o.kodeBarang}*\n`;
-          text += `👤 Konsumen : ${o.konsumen || '-'}\n`;
-          text += `🧑‍💼 CS       : ${o.cs || '-'}\n`;
-          text += `👕 Model    : ${o.model}${o.warna ? ` (${o.warna})` : ''}\n`;
-          text += `\n`;
-
-          // Kelompokkan size per tangan
           const panjangSizes: string[] = [];
           const pendekSizes: string[] = [];
 
           o.sizeDetails.forEach(sd => {
             const sizes = (sd.sizes && sd.sizes.length > 0) ? sd.sizes : [{ size: sd.size, jumlah: sd.jumlah }];
             sizes.forEach(sz => {
-              const entry = `${sz.size}: ${sz.jumlah} pcs`;
+              const entry = `${sz.size} → ${sz.jumlah} pcs`;
               if (sd.tangan === 'Panjang') {
                 panjangSizes.push(entry);
                 panjangQty += sz.jumlah;
@@ -250,20 +274,29 @@ const HistoryScreen: React.FC<HistoryScreenProps> = ({ orders, onDelete, onBulkD
             });
           });
 
+          const itemTotal = panjangQty + pendekQty;
+
+          text += `┌─────────────────────\n`;
+          text += `│ 🏷️ *Order #${idx + 1}* — Kode *${o.kodeBarang}*\n`;
+          text += `├─────────────────────\n`;
+          text += `│ 👤 Konsumen  : *${o.konsumen || '-'}*\n`;
+          text += `│ 🧑‍💼 CS Admin  : ${o.cs || '-'}\n`;
+          text += `│ 👕 Model     : *${o.model}*${o.warna ? ` (${o.warna})` : ''}\n`;
+          text += `│ 📦 Total     : *${itemTotal} pcs*\n`;
+          text += `├─────────────────────\n`;
+
           if (panjangSizes.length > 0) {
-            text += `🌀 *Lengan Panjang* (${panjangQty} pcs)\n`;
-            panjangSizes.forEach(s => { text += `   • ${s}\n`; });
+            text += `│ 🟦 *Lengan Panjang* (${panjangQty} pcs)\n`;
+            panjangSizes.forEach(s => { text += `│    • ${s}\n`; });
           }
           if (pendekSizes.length > 0) {
-            text += `💠 *Lengan Pendek* (${pendekQty} pcs)\n`;
-            pendekSizes.forEach(s => { text += `   • ${s}\n`; });
+            text += `│ � *Lengan Pendek* (${pendekQty} pcs)\n`;
+            pendekSizes.forEach(s => { text += `│    • ${s}\n`; });
           }
 
-          const itemTotal = panjangQty + pendekQty;
-          text += `📦 Subtotal : *${itemTotal} pcs*\n`;
-          text += `────────────────────\n\n`;
+          text += `└─────────────────────\n`;
+          text += `\n`;
 
-          // Akumulasi untuk ringkasan
           const modelKey = o.model.toUpperCase();
           if (panjangQty > 0) {
             const k = `${modelKey} - Lengan Panjang`;
@@ -276,28 +309,29 @@ const HistoryScreen: React.FC<HistoryScreenProps> = ({ orders, onDelete, onBulkD
           grandTotal += itemTotal;
         });
 
-        // Ringkasan total per model+tangan
-        text += `*RINGKASAN TOTAL*\n`;
-        text += `━━━━━━━━━━━━━━━━━━━━\n`;
+        // Ringkasan
+        text += `╔══════════════════════╗\n`;
+        text += `║   📊 *RINGKASAN TOTAL*   ║\n`;
+        text += `╚══════════════════════╝\n`;
         Object.entries(modelTanganTotals).forEach(([key, qty]) => {
-          text += `• ${key}: *${qty} pcs*\n`;
+          text += `  ✅ ${key}: *${qty} pcs*\n`;
         });
-        text += `\n📦 *GRAND TOTAL: ${grandTotal} PCS*\n`;
-        text += `━━━━━━━━━━━━━━━━━━━━\n`;
-        text += `🙏 _Terimakasih._`;
-        
+        text += `\n`;
+        text += `🎯 *GRAND TOTAL: ${grandTotal} PCS*\n`;
+        text += `\n`;
+        text += `🙏 _Terima kasih, Bradwear!_ ✨`;
+
         window.open(`https://wa.me/6283194190156?text=${encodeURIComponent(text)}`, '_blank');
-        
-        // Update status dan payment untuk semua item terpilih menggunakan bulk update
-        const selectedIdArray = Array.from(selectedIds);
+
+        // Update LUNAS → YA, pertahankan status masing-masing item
+        selected.forEach(o => {
+          if (onUpdatePayment) onUpdatePayment(o.id, PaymentStatus.BAYAR);
+        });
         if (onBulkUpdateStatus) {
-          onBulkUpdateStatus(selectedIdArray, JobStatus.BERES, PaymentStatus.BAYAR);
-        } else {
-          // Fallback jika bulk update tidak tersedia
-          selected.forEach(o => {
-            onUpdateStatus(o.id, JobStatus.BERES);
-            if (onUpdatePayment) onUpdatePayment(o.id, PaymentStatus.BAYAR);
-          });
+          const prosesIds = selected.filter(o => o.status === JobStatus.PROSES).map(o => o.id);
+          const beresIds = selected.filter(o => o.status === JobStatus.BERES).map(o => o.id);
+          if (prosesIds.length > 0) onBulkUpdateStatus(prosesIds, JobStatus.PROSES, PaymentStatus.BAYAR);
+          if (beresIds.length > 0) onBulkUpdateStatus(beresIds, JobStatus.BERES, PaymentStatus.BAYAR);
         }
         setSelectedIds(new Set());
       }
@@ -531,7 +565,7 @@ const HistoryScreen: React.FC<HistoryScreenProps> = ({ orders, onDelete, onBulkD
             const isCollapsed = collapsedGroups.has(groupKey);
             
             return (
-            <div key={date} className={`overflow-hidden rounded-[2.5rem] md:rounded-[2.5rem] rounded-[1.5rem] border-2 shadow-xl transition-all ${isDarkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-white border-amber-500/10'}`}>
+            <div key={date} className={`overflow-hidden rounded-2xl border-2 shadow-xl transition-all ${isDarkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-white border-amber-500/10'}`}>
                {/* Header Tanggal - Clickable */}
                <button 
                  onClick={() => toggleGroupCollapse(groupKey)}
@@ -596,7 +630,7 @@ const HistoryScreen: React.FC<HistoryScreenProps> = ({ orders, onDelete, onBulkD
                      </tbody>
                   </table>
                </div>
-               {/* Totals row for selected items in this week group */}
+               {/* Totals row for selected items in this unpaid group */}
                {(() => {
                  const groupSelected = items.filter(o => selectedIds.has(o.id));
                  if (groupSelected.length === 0) return null;
@@ -615,6 +649,14 @@ const HistoryScreen: React.FC<HistoryScreenProps> = ({ orders, onDelete, onBulkD
                          <span className="text-[7px] font-black text-slate-400 uppercase">Est. Harga</span>
                          <span className="text-xs font-black text-emerald-600">Rp {selHarga.toLocaleString('id-ID')}</span>
                        </div>
+                       <div className="w-px h-6 bg-amber-200" />
+                       <button
+                         onClick={(e) => { e.stopPropagation(); handleShareWhatsApp(); }}
+                         className="flex items-center gap-1.5 bg-emerald-500 text-white px-3 py-2 rounded-xl font-black text-[9px] uppercase shadow-lg active:scale-95 transition-all"
+                       >
+                         <Send size={12} className="shrink-0" />
+                         <span>WA</span>
+                       </button>
                      </div>
                    </div>
                  );
@@ -653,7 +695,7 @@ const HistoryScreen: React.FC<HistoryScreenProps> = ({ orders, onDelete, onBulkD
             const weekTotalHarga = items.reduce((s, o) => s + calculateOrderEarning(o), 0);
             
             return (
-            <div key={date} className={`overflow-hidden rounded-[2.5rem] md:rounded-[2.5rem] rounded-[1.5rem] border-2 shadow-xl transition-all ${isDarkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-white border-emerald-500/10'}`}>
+            <div key={date} className={`overflow-hidden rounded-2xl border-2 shadow-xl transition-all ${isDarkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-white border-emerald-500/10'}`}>
                {/* Header Tanggal - Clickable */}
                <button 
                  onClick={() => toggleGroupCollapse(groupKey)}
@@ -749,26 +791,30 @@ const HistoryScreen: React.FC<HistoryScreenProps> = ({ orders, onDelete, onBulkD
       )}
       </div>
 
-      {selectedIds.size > 0 && (
-        <div className="fixed bottom-24 sm:bottom-20 left-0 right-0 z-[80] px-3 sm:px-4 animate-in slide-in-from-bottom-10 duration-500">
-          <div className={`max-w-md mx-auto flex items-center justify-center gap-1.5 sm:gap-2 p-2.5 sm:p-3 rounded-[1.5rem] shadow-2xl border-2 ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-100'}`}>
-            <div className="bg-emerald-500 text-white w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center font-black text-xs shrink-0">
-              {selectedIds.size}
+      {selectedIds.size > 0 && ReactDOM.createPortal(
+        <div className="fixed bottom-0 left-0 right-0 z-[150] pointer-events-none">
+          {/* Spacer setinggi navbar (h-24 = 96px) */}
+          <div className="pointer-events-auto mx-auto max-w-4xl px-3 pb-[100px]">
+            <div className={`flex items-center justify-center gap-2 p-2.5 rounded-2xl shadow-2xl border-2 animate-in slide-in-from-bottom-4 duration-300 ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-100'}`}>
+              <div className="bg-emerald-500 text-white w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shrink-0">
+                {selectedIds.size}
+              </div>
+              <button onClick={handleBulkRestore} className="flex items-center justify-center gap-1.5 bg-amber-500 text-white px-3 py-2 rounded-xl font-black text-[9px] uppercase shadow-lg active:scale-95 transition-all">
+                <RotateCcw size={13} className="shrink-0" />
+                <span>Restore</span>
+              </button>
+              <button onClick={handleBulkDelete} className="flex items-center justify-center gap-1.5 bg-red-500 text-white px-3 py-2 rounded-xl font-black text-[9px] uppercase shadow-lg active:scale-95 transition-all">
+                <Trash2 size={13} className="shrink-0" />
+                <span>Hapus</span>
+              </button>
+              <button onClick={handleShareWhatsApp} className="flex items-center justify-center gap-1.5 bg-emerald-500 text-white px-3 py-2 rounded-xl font-black text-[9px] uppercase shadow-lg active:scale-95 transition-all">
+                <Send size={13} className="shrink-0" />
+                <span>WhatsApp</span>
+              </button>
             </div>
-            <button onClick={handleBulkRestore} className="flex items-center justify-center gap-1 sm:gap-1.5 bg-amber-500 text-white px-2.5 sm:px-3 py-2 sm:py-2.5 rounded-xl font-black text-[9px] uppercase shadow-lg hover:scale-105 active:scale-95 transition-all min-w-0" title="Pulihkan Terpilih">
-              <RotateCcw size={14} className="shrink-0" />
-              <span className="hidden sm:inline">Restore</span>
-            </button>
-            <button onClick={handleBulkDelete} className="flex items-center justify-center gap-1 sm:gap-1.5 bg-red-500 text-white px-2.5 sm:px-3 py-2 sm:py-2.5 rounded-xl font-black text-[9px] uppercase shadow-lg hover:scale-105 active:scale-95 transition-all min-w-0" title="Hapus Terpilih">
-              <Trash2 size={14} className="shrink-0" />
-              <span className="hidden sm:inline">Hapus</span>
-            </button>
-            <button onClick={handleShareWhatsApp} className="flex items-center justify-center gap-1 sm:gap-1.5 bg-emerald-500 text-white px-2.5 sm:px-3 py-2 sm:py-2.5 rounded-xl font-black text-[9px] uppercase shadow-lg hover:scale-105 active:scale-95 transition-all min-w-0">
-              <Send size={14} className="shrink-0" />
-              <span className="hidden sm:inline">WhatsApp</span>
-            </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Toast notification */}
@@ -780,13 +826,25 @@ const HistoryScreen: React.FC<HistoryScreenProps> = ({ orders, onDelete, onBulkD
         </div>
       )}
 
-      {/* Info Detail Popup — compact, full info */}
+      {/* Info Detail Popup — fullscreen, iPhone-style animation */}
       {selectedOrderDetails && (
-        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className={`relative w-full max-w-sm rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl flex flex-col max-h-[88vh] ${isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}`}>
-            <div className="flex justify-center pt-3 pb-1 sm:hidden"><div className="w-10 h-1 rounded-full bg-slate-300" /></div>
-            <button onClick={() => setSelectedOrderDetails(null)} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-500 z-10"><X size={20} /></button>
-            <div className="overflow-y-auto px-5 pb-6 pt-2" style={{ scrollbarWidth: 'none' }}>
+        <div
+          className={`fixed inset-0 z-[100] flex items-start justify-center transition-all duration-300 ease-out ${
+            isModalOpen && !isModalClosing ? 'bg-black/50 backdrop-blur-md' : 'bg-black/0 backdrop-blur-none'
+          }`}
+          onClick={closeModal}
+        >
+          <div
+            className={`relative w-full h-full flex flex-col transition-all duration-300 ease-out ${
+              isModalOpen && !isModalClosing
+                ? 'opacity-100 scale-100 translate-y-0'
+                : 'opacity-0 scale-95 translate-y-6'
+            } ${isDarkMode ? 'bg-slate-900 text-white' : 'bg-white text-slate-800'}`}
+            style={{ transformOrigin: 'top center' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button onClick={closeModal} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-500 z-10 transition-colors"><X size={20} /></button>
+            <div className="overflow-y-auto px-5 pb-6 pt-4 max-w-lg mx-auto w-full" style={{ scrollbarWidth: 'none' }}>
               <div className="text-center mb-4">
                 <h3 className="text-2xl font-black">{selectedOrderDetails.kodeBarang}</h3>
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Penjahit: {selectedOrderDetails.namaPenjahit}</p>

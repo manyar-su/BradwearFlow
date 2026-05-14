@@ -69,6 +69,8 @@ const ScanScreen: React.FC<ScanScreenProps> = ({
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set([0]));
 
   const [formData, setFormData] = useState<Partial<OrderItem>>(INITIAL_FORM_STATE);
+  const [kodeBarangError, setKodeBarangError] = useState(false);
+  const kodeBarangRef = useRef<HTMLDivElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -199,6 +201,7 @@ const ScanScreen: React.FC<ScanScreenProps> = ({
         })) || prev.sizeDetails
       }));
       setIsManualMode(false);
+      setKodeBarangError(false); // reset error saat scan baru masuk
     }
   }, [scanResultGlobal]);
 
@@ -548,12 +551,20 @@ const ScanScreen: React.FC<ScanScreenProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.namaPenjahit || !formData.kodeBarang) {
-      triggerConfirm({
-        title: 'Data Tidak Lengkap',
-        message: 'Nama Penjahit dan Kode Barang wajib diisi!',
-        type: 'danger',
-        onConfirm: () => { } // Just close
-      });
+      if (!formData.kodeBarang) {
+        setKodeBarangError(true);
+        setTimeout(() => setKodeBarangError(false), 3000);
+        // Scroll ke field kode barang
+        kodeBarangRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      if (!formData.namaPenjahit) {
+        triggerConfirm({
+          title: 'Data Tidak Lengkap',
+          message: 'Nama Penjahit wajib diisi!',
+          type: 'danger',
+          onConfirm: () => { }
+        });
+      }
       return;
     }
 
@@ -597,6 +608,17 @@ const ScanScreen: React.FC<ScanScreenProps> = ({
 
         .animate-normal-cycle {
           animation: normalCycle 4s infinite ease-in-out;
+        }
+
+        @keyframes kodeBarangPulse {
+          0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); background-color: rgba(239,68,68,0.08); }
+          40%  { box-shadow: 0 0 0 10px rgba(239,68,68,0); background-color: rgba(239,68,68,0.15); }
+          100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); background-color: rgba(239,68,68,0.08); }
+        }
+
+        .animate-kode-error {
+          animation: kodeBarangPulse 0.7s ease-in-out 3;
+          border-color: #ef4444 !important;
         }
       `}</style>
 
@@ -786,18 +808,29 @@ const ScanScreen: React.FC<ScanScreenProps> = ({
                 <div className="grid grid-cols-1 gap-6">
                   <FormInput label="Penjahit (Otomatis)" value={formData.namaPenjahit} readOnly isDarkMode={isDarkMode} placeholder="Nama Penjahit" icon={<User size={14} className="text-emerald-500" />} className="opacity-70 bg-slate-100/50" />
 
-                  <div className={`p-1 rounded-[2.5rem] ${isDarkMode ? 'bg-amber-500/5' : 'bg-amber-50/50'} border border-amber-200/50`}>
+                  <div ref={kodeBarangRef} className={`p-1 rounded-[2.5rem] border transition-all ${kodeBarangError ? 'animate-kode-error border-red-500 bg-red-50/30' : isDarkMode ? 'bg-amber-500/5 border-amber-200/50' : 'bg-amber-50/50 border-amber-200/50'}`}>
                     <FormInput
                       label="Kode Barang (4 Digit)"
                       value={formData.kodeBarang}
-                      onChange={v => setFormData({ ...formData, kodeBarang: v })}
+                      onChange={(v: string) => {
+                        setFormData({ ...formData, kodeBarang: v });
+                        if (v) setKodeBarangError(false);
+                      }}
                       required
                       isDarkMode={isDarkMode}
-                      placeholder="Contoh: 1716"
-                      error={showDuplicateWarning}
-                      icon={<FileText size={14} className="text-amber-500" />}
+                      placeholder="Contoh: 1843"
+                      error={showDuplicateWarning || kodeBarangError}
+                      icon={<FileText size={14} className={kodeBarangError ? "text-red-500" : "text-amber-500"} />}
                       className="!bg-transparent border-none ring-0 focus:ring-0"
                     />
+                    {kodeBarangError && (
+                      <div className="flex items-center gap-2 px-4 pb-3 animate-in slide-in-from-top-2 duration-300">
+                        <AlertTriangle size={12} className="text-red-500 shrink-0" />
+                        <span className="text-[10px] font-black text-red-500 uppercase tracking-wide">
+                          Isi kode barang 4 digit terlebih dahulu!
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <FormInput label="CS (Admin)" value={formData.cs} onChange={v => setFormData({ ...formData, cs: v })} isDarkMode={isDarkMode} placeholder="Nama CS" icon={<ShieldCheck size={14} />} />

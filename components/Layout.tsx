@@ -108,7 +108,7 @@ const Layout: React.FC<LayoutProps> = ({
         )}
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto no-scrollbar pb-24 px-4 md:px-8">
+        <main className="flex-1 overflow-y-auto no-scrollbar smooth-scroll pb-24 px-4 md:px-8" style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
           {children}
         </main>
 

@@ -113,13 +113,22 @@ const App: React.FC = () => {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          // Deduplicate: hapus item dengan id sama, simpan yang pertama
-          const seen = new Set<string>();
-          const deduped = parsed.filter(o => {
-            if (seen.has(o.id)) return false;
-            seen.add(o.id);
-            return true;
+          // Deduplicate lokal: cegah item kembar, prioritaskan by id
+          const dedupedMap = new Map<string, any>();
+          parsed.forEach((o: any) => {
+            const key = o.id;
+            if (!key) return;
+            const prev = dedupedMap.get(key);
+            if (!prev) {
+              dedupedMap.set(key, o);
+              return;
+            }
+            // Prioritaskan yang punya cloudId
+            if (!prev.cloudId && o.cloudId) {
+              dedupedMap.set(key, o);
+            }
           });
+          const deduped = Array.from(dedupedMap.values());
           setOrders(deduped.map(o => ({
             ...o,
             status: o.status || JobStatus.PROSES,
@@ -227,38 +236,59 @@ const App: React.FC = () => {
       });
     });
 
-    // ONE-TIME initial load dari Supabase untuk restore data yang belum ada di localStorage
-    // Setelah ini, history murni dari localStorage — tidak ada inject realtime
-    const initialSyncKey = 'bradwear_initial_sync_done';
-    syncService.getGlobalOrders().then(globalOrders => {
+    // Penting: jangan inject realtime order dari Supabase ke Riwayat.
+    // Riwayat utama tetap dari localStorage per penjahit login.
+    // Fallback: jika lokal kosong, hydrate sekali dari cloud khusus milik penjahit login.
+    const hydrateLocalFromCloudIfEmpty = async () => {
+      const profileName = (localStorage.getItem('profileName') || '').trim();
+      if (!profileName || profileName === 'Nama Anda') return;
+
       setOrders(prev => {
-        const combined = [...prev];
-        let changed = false;
-        globalOrders.forEach(go => {
-          const exists = combined.some(o =>
-            o.id === go.id ||
-            o.id === go.cloudId ||
-            (o.cloudId && (o.cloudId === go.cloudId || o.cloudId === go.id))
-          );
-          if (!exists) {
-            combined.push(go);
-            changed = true;
-          } else {
-            // Update cloudId saja
-            const idx = combined.findIndex(o =>
-              o.id === go.id || o.id === go.cloudId ||
-              (o.cloudId && (o.cloudId === go.cloudId || o.cloudId === go.id))
-            );
-            if (idx > -1 && !combined[idx].cloudId) {
-              combined[idx] = { ...combined[idx], cloudId: go.cloudId || go.id };
-              changed = true;
-            }
-          }
-        });
-        if (!changed) return prev;
-        return combined.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        const hasLocalForProfile = prev.some(
+          o => (o.namaPenjahit || '').toLowerCase().trim() === profileName.toLowerCase()
+        );
+        if (hasLocalForProfile) return prev;
+        return prev;
       });
-    });
+
+      const currentLocal: OrderItem[] = (() => {
+        try {
+          const parsed = JSON.parse(localStorage.getItem('tailor_orders') || '[]');
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      })();
+      const hasLocalForProfile = currentLocal.some(
+        o => (o.namaPenjahit || '').toLowerCase().trim() === profileName.toLowerCase()
+      );
+      if (hasLocalForProfile) return;
+
+      const cloudOrders = await syncService.getGlobalOrders();
+      const mineFromCloud = cloudOrders.filter(
+        o => (o.namaPenjahit || '').toLowerCase().trim() === profileName.toLowerCase().trim()
+      );
+      if (mineFromCloud.length === 0) return;
+
+      setOrders(prev => {
+        const merged = [...prev];
+        mineFromCloud.forEach(co => {
+          const exists = merged.some(
+            lo =>
+              lo.id === co.id ||
+              (lo.cloudId && (lo.cloudId === co.id || lo.cloudId === co.cloudId)) ||
+              (
+                lo.kodeBarang === co.kodeBarang &&
+                (lo.namaPenjahit || '').toLowerCase().trim() === (co.namaPenjahit || '').toLowerCase().trim() &&
+                Math.abs(new Date(lo.createdAt || 0).getTime() - new Date(co.createdAt || 0).getTime()) < 60000
+              )
+          );
+          if (!exists) merged.push(co);
+        });
+        return merged.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      });
+    };
+    hydrateLocalFromCloudIfEmpty().catch(e => console.error('Hydrate local history failed:', e));
 
     const profileName = localStorage.getItem('profileName');
     if (profileName && profileName !== 'Nama Anda') {
@@ -731,7 +761,7 @@ const App: React.FC = () => {
             {activeView === 'DASHBOARD' && <Dashboard orders={myOrders} searchQuery={searchQuery} setSearchQuery={setSearchQuery} isDarkMode={isDarkMode} unreadCount={notifications.filter(n => !n.read).length} onShowNotifications={() => setShowNotifPanel(true)} toggleDarkMode={() => { const next = !isDarkMode; setIsDarkMode(next); localStorage.setItem('theme', next ? 'dark' : 'light'); }} onScanClick={() => setShowScanMethodPopup(true)} onViewHistory={handleNavigateToHistoryItem} onUpdateStatus={handleUpdateStatus} onUpdateOrder={handleUpdateOrder} onDelete={handleDeleteOrder} triggerConfirm={triggerConfirm} />}
             {activeView === 'SCAN' && <ScanScreen onSave={handleAddOrder} onCancel={() => setActiveView('DASHBOARD')} isDarkMode={isDarkMode} existingOrders={activeOrders} isScanningGlobal={isScanning} scanResultGlobal={scanResult} onStartScan={handleGlobalScan} setScanResultGlobal={setScanResult} triggerConfirm={triggerConfirm} />}
             {activeView === 'HISTORY' && <HistoryScreen orders={activeOrders} onDelete={(id) => handleDeleteOrder(id, undefined, false)} onBulkDelete={handleBulkDelete} onUpdateStatus={handleUpdateStatus} onBulkUpdateStatus={handleBulkUpdateStatus} onUpdatePayment={handleUpdatePayment} onEdit={handleEditFromHistory} searchQuery={searchQuery} setSearchQuery={setSearchQuery} isDarkMode={isDarkMode} targetId={targetOrderId} clearTargetId={() => setTargetOrderId(null)} triggerConfirm={triggerConfirm} />}
-            {activeView === 'ANALYTICS' && <AnalyticsScreen orders={myOrders} isDarkMode={isDarkMode} />}
+            {activeView === 'ANALYTICS' && <AnalyticsScreen orders={myOrders} isDarkMode={isDarkMode} currentPenjahit={profileName || undefined} />}
             {activeView === 'ACCOUNT' && <AccountScreen orders={activeOrders} deletedOrders={deletedOrders} onRestore={handleRestoreOrder} onPermanentDelete={handlePermanentDelete} onBulkPermanentDelete={handleBulkPermanentDelete} onUpdateOrder={handleUpdateOrder} isDarkMode={isDarkMode} onViewChange={setActiveView} triggerConfirm={triggerConfirm} />}
             {activeView === 'FORUM_CHAT' && <ChatScreen isDarkMode={isDarkMode} />}
           </div>

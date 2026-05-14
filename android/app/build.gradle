@@ -38,8 +38,8 @@ android {
         applicationId "com.bradwear.flow"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 20800
-        versionName "2.8.0"
+        versionCode getVersionCode()
+        versionName getPackageVersion()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -59,7 +59,7 @@ android {
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
             def buildType = variant.buildType.name
-            outputFileName = "bradflow-v2.8.0-${buildType}.apk"
+            outputFileName = "bradflow-v${getPackageVersion()}-${buildType}.apk"
         }
     }
 }

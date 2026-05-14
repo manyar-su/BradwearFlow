@@ -105,8 +105,8 @@ const DailyMotivation: React.FC<DailyMotivationProps> = ({ isDarkMode }) => {
                 initial={{ opacity: 0, y: 20, scale: 0 }}
                 animate={{ 
                   opacity: 1, 
-                  y: [20, -5, 0],
-                  scale: [0, 1.1, 1]
+                  y: 0,
+                  scale: 1
                 }}
                 transition={{
                   delay: index * 0.1,

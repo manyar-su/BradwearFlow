@@ -67,11 +67,12 @@ GROUPING RULES:
 
 MAPPING RULES:
 - CRITICAL: 'kodeBarang' MUST be exactly 4 digits (e.g. 1234) OR contain the prefix "TDP" (e.g. TDP4567).
-- CONTEXT: Usually found at the TOP of the document, often handwritten in the upper section.
-- PRIORITY: Look for 4 consecutive digits at the VERY TOP of the image first (above any other text).
-- IGNORE: Do NOT pick up dates (e.g. 16/2026), phone numbers, or quantities as 'kodeBarang'. If a 4-digit number is part of a longer string like a date, IGNORE it.
-- If no valid 4-digit code or TDP code is clearly found, set 'kodeBarang' to an empty string.
-- WARNING: 'kodeBarang' is a high-priority identifier. Do NOT confuse it with color names.
+- LOCATION: The kode barang is ALWAYS located at the TOP-RIGHT CORNER of the document. It is typically printed in a LARGE, BOLD font inside a CIRCLE, BOX, or BORDER — visually prominent and isolated from other text.
+- PRIORITY: Look FIRST at the TOP-RIGHT CORNER of the image for a large standalone 4-digit number inside a circle or box. This is the kode barang.
+- IGNORE: Do NOT pick up dates (e.g. 16/2026, 14 Januari 2026), phone numbers, quantities (e.g. 41 PCS), or any number that is part of a sentence or table. If a 4-digit number appears anywhere OTHER than the top-right corner, IGNORE it.
+- STRICT RULE: If the number found in the top-right corner is NOT exactly 4 digits (e.g. it is 3 digits like "124", or 5+ digits), set 'kodeBarang' to an EMPTY STRING "".
+- If no valid 4-digit code or TDP code is clearly found in the top-right corner, set 'kodeBarang' to an empty string "".
+- WARNING: 'kodeBarang' is a high-priority identifier. Do NOT confuse it with color names, dates, or quantities.
 - Extract 'tanggalOrder' and 'tanggalTargetSelesai'.
 - Find Admin/CS name for 'cs'.
 - Find Client/Customer name for 'konsumen'.
@@ -311,8 +312,8 @@ KUALITAS DETEKSI:
   * Jika nama bukan dari TAILOR NAMES LIST dan ada ukuran tubuh → itu nama konsumen (namaPerSize untuk custom)
 - Jika gender tidak tertulis eksplisit, cari simbol (P/W) atau konteks model.
 - Jika lengan tidak tertulis, asumsikan 'Pendek' kecuali ada tanda 'Pjg' atau 'Panjang'.
-- Aturan Kode Barang: Harus 4 Digit murni atau TDP. Abaikan format seperti 16/2026.
-- PRIORITAS TINGGI: 4 angka di bagian paling atas dokumen adalah kode barang.
+- Aturan Kode Barang: Harus TEPAT 4 Digit murni atau TDP. Abaikan format seperti 16/2026, tanggal, jumlah PCS, atau angka dalam kalimat.
+- PRIORITAS TINGGI: Cari di POJOK KANAN ATAS dokumen — biasanya angka besar dalam lingkaran atau kotak. Jika angka di pojok kanan atas bukan tepat 4 digit, set kodeBarang ke string kosong "".
 - Untuk CELANA: Size harus angka (28-40), bukan huruf (S/M/L).
 - Untuk KEMEJA: Deteksi jenis bahan (Maryland, Drill, Oxford, dll) dari deskripsi.
 
