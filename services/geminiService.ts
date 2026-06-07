@@ -1,8 +1,16 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
+import { validateAndFormatKodeBarang } from "../utils/kodeBarangWarna";
 
 const OPENROUTER_KEY = (import.meta as any).env.VITE_OPENROUTER_KEY || '';
 const DEFAULT_GEMINI_KEY = '';
+const DEFAULT_OPENROUTER_MODELS = [
+  'gemini/gemini-2.5-flash',
+  'gemini/gemini-2.5-flash-lite',
+  'gemini/gemini-3-flash-preview',
+];
+const TAILOR_NAMES = ["Maris", "Ferry", "Aan", "Farid", "Opik", "Fadil", "Asep", "Abdul", "Hadi", "Epul"];
+const TAILOR_NAME_LOOKUP = new Map(TAILOR_NAMES.map((name) => [name.toLowerCase(), name]));
 
 const PROMPT_OCR = `Extract exact text data from this order slip image. 
 Act as a high-precision OCR engine with ADVANCED SIZE AND QUANTITY DETECTION.
@@ -72,6 +80,10 @@ MAPPING RULES:
 - IGNORE: Do NOT pick up dates (e.g. 16/2026, 14 Januari 2026), phone numbers, quantities (e.g. 41 PCS), or any number that is part of a sentence or table. If a 4-digit number appears anywhere OTHER than the top-right corner, IGNORE it.
 - STRICT RULE: If the number found in the top-right corner is NOT exactly 4 digits (e.g. it is 3 digits like "124", or 5+ digits), set 'kodeBarang' to an EMPTY STRING "".
 - If no valid 4-digit code or TDP code is clearly found in the top-right corner, set 'kodeBarang' to an empty string "".
+- ALSO RETURN:
+  * topRightText: the exact raw text you see in the top-right code area, even if invalid
+  * kodeBarangCandidates: array of candidate strings in confidence order, top-right candidate first
+  * ocrText: a compact raw OCR transcription of the important visible text blocks
 - WARNING: 'kodeBarang' is a high-priority identifier. Do NOT confuse it with color names, dates, or quantities.
 - Extract 'tanggalOrder' and 'tanggalTargetSelesai'.
 - Find Admin/CS name for 'cs'.
@@ -319,46 +331,138 @@ KUALITAS DETEKSI:
 
 Return ONLY a valid JSON object matching the schema.`;
 
+const getOpenRouterModelCandidates = () => {
+  const configuredModels = String((import.meta as any).env.VITE_OPENROUTER_MODEL || '')
+    .split(',')
+    .map((model: string) => model.trim())
+    .filter(Boolean);
+
+  return [...new Set([...configuredModels, ...DEFAULT_OPENROUTER_MODELS])];
+};
+
+const getErrorMessage = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  return String(error);
+};
+
+const normalizeTailorName = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const cleaned = value.trim();
+  if (!cleaned) return undefined;
+
+  const exactMatch = TAILOR_NAME_LOOKUP.get(cleaned.toLowerCase());
+  if (exactMatch) return exactMatch;
+
+  for (const [lowerName, canonicalName] of TAILOR_NAME_LOOKUP.entries()) {
+    const pattern = new RegExp(`\\b${lowerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    if (pattern.test(cleaned)) return canonicalName;
+  }
+
+  return undefined;
+};
+
+const extractKodeBarangFromText = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+
+  const normalized = value.toUpperCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+
+  const tdpMatch = normalized.match(/\bTDP\s*-?\s*(\d{1,6})\b/);
+  if (tdpMatch) {
+    return validateAndFormatKodeBarang(`TDP${tdpMatch[1]}`);
+  }
+
+  const directTdp = normalized.match(/\bTDP\d{1,6}\b/);
+  if (directTdp) {
+    return validateAndFormatKodeBarang(directTdp[0]);
+  }
+
+  const fourDigitMatches = normalized.match(/\b\d{4}\b/g) || [];
+  for (const match of fourDigitMatches) {
+    const resolved = validateAndFormatKodeBarang(match);
+    if (resolved) return resolved;
+  }
+
+  return null;
+};
+
+const resolveKodeBarang = (result: Record<string, any>): string => {
+  const directValue = validateAndFormatKodeBarang(String(result.kodeBarang || ''));
+  if (directValue) return directValue;
+
+  const candidates = [
+    ...(Array.isArray(result.kodeBarangCandidates) ? result.kodeBarangCandidates : []),
+    result.topRightText,
+    result.rawKodeBarang,
+    result.ocrText,
+    result.deskripsiPekerjaan,
+    result.modelDetail,
+  ];
+
+  for (const candidate of candidates) {
+    const resolved = extractKodeBarangFromText(candidate);
+    if (resolved) return resolved;
+  }
+
+  return '';
+};
+
 const callOpenRouter = async (base64Image: string) => {
   const userApiKey = localStorage.getItem('bradwear_gemini_key');
   const activeKey = (userApiKey?.startsWith('sk-') ? userApiKey : null) || OPENROUTER_KEY;
   if (!activeKey) throw new Error("API key tidak tersedia.");
-  try {
-    const response = await fetch("https://ai.sumopod.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${activeKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        "model": "gemini/gemini-2.0-flash",
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              { "type": "text", "text": PROMPT_OCR },
-              {
-                "type": "image_url",
-                "image_url": { "url": `data:image/jpeg;base64,${base64Image}` }
-              }
-            ]
-          }
-        ],
-        "response_format": { "type": "json_object" }
-      })
-    });
+  const modelCandidates = getOpenRouterModelCandidates();
+  let lastError: Error | null = null;
 
-    const data = await response.json();
-    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-    
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("OpenRouter return empty content");
-    
-    return JSON.parse(content);
-  } catch (e) {
-    console.error("OpenRouter Error:", e);
-    throw e;
+  for (const model of modelCandidates) {
+    try {
+      const response = await fetch("https://ai.sumopod.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${activeKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: PROMPT_OCR },
+                {
+                  type: "image_url",
+                  image_url: { url: `data:image/jpeg;base64,${base64Image}` }
+                }
+              ]
+            }
+          ],
+          response_format: { type: "json_object" }
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data?.error?.message || `HTTP ${response.status}`);
+      }
+
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) throw new Error(`Model ${model} returned empty content`);
+
+      return JSON.parse(content);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      lastError = new Error(`Model ${model}: ${message}`);
+
+      if (/invalid model name/i.test(message)) {
+        continue;
+      }
+
+      break;
+    }
   }
+
+  console.error("OpenRouter Error:", lastError);
+  throw lastError || new Error("Semua model OCR gagal dipakai.");
 };
 
 export const extractOrderData = async (base64Image: string) => {
@@ -367,6 +471,8 @@ export const extractOrderData = async (base64Image: string) => {
 };
 
 const processResult = (result: any) => {
+    result.kodeBarang = resolveKodeBarang(result);
+
     // AUTO-DETECT jenisBarang dari deskripsi jika belum terdeteksi
     if (!result.jenisBarang && result.deskripsiPekerjaan) {
       const desc = result.deskripsiPekerjaan.toLowerCase();
@@ -416,6 +522,7 @@ const processResult = (result: any) => {
       result.sizeDetails = result.sizeDetails.map((item: any) => {
         let gender = item.gender || 'Pria';
         const gLower = gender.toLowerCase().trim();
+        const itemTailorName = normalizeTailorName(item.namaPenjahit) || normalizeTailorName(item.namaPerSize);
         // P = Pria (Laki-laki), W = Wanita (Perempuan)
         if (gLower === 'w' || gLower.includes('wanita') || gLower.includes('perempuan') || gLower === 'cewek') {
           gender = 'Wanita';
@@ -434,6 +541,16 @@ const processResult = (result: any) => {
             if (sizeItem.customMeasurements) {
               sizeItem.customMeasurements = normalizeCustomMeasurements(sizeItem.customMeasurements);
             }
+            const sizeTailorName =
+              normalizeTailorName(sizeItem.namaPenjahit) ||
+              normalizeTailorName(sizeItem.namaPerSize) ||
+              itemTailorName;
+            if (sizeTailorName) {
+              sizeItem.namaPenjahit = sizeTailorName;
+              if (normalizeTailorName(sizeItem.namaPerSize)) {
+                delete sizeItem.namaPerSize;
+              }
+            }
             return sizeItem;
           });
         }
@@ -443,6 +560,7 @@ const processResult = (result: any) => {
           ...item,
           gender,
           warna: item.warna || result.warna || '',
+          namaPenjahit: itemTailorName,
         };
 
         // Hanya tambahkan field yang relevan berdasarkan jenis barang
@@ -516,6 +634,7 @@ export const extractSplitData = async (base64Images: string[]) => {
   const userApiKey = localStorage.getItem('bradwear_gemini_key');
   const envApiKey = (import.meta as any).env.VITE_GOOGLE_API_KEY || '';
   const ai = new GoogleGenAI({ apiKey: userApiKey || envApiKey || DEFAULT_GEMINI_KEY });
+  const splitModel = getOpenRouterModelCandidates()[0]?.replace('gemini/', '') || 'gemini-2.5-flash-lite';
 
   try {
     const parts = base64Images.map(img => ({
@@ -523,7 +642,7 @@ export const extractSplitData = async (base64Images: string[]) => {
     }));
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: splitModel,
       contents: {
         parts: [
           ...parts,

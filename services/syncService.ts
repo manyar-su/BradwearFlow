@@ -7,6 +7,7 @@ import { id as idLocale } from 'date-fns/locale/id';
 const LOCAL_ORDERS_KEY = 'tailor_orders';
 const CLOUD_CHAT_KEY = 'bradwear_global_chat';
 const GLOBAL_NOTIF_KEY = 'bradwear_global_notif';
+const GLOBAL_NOTIF_EVENT = 'bradwear-global-notif';
 
 // Convert local OrderItem to Supabase format
 const toOrderDB = (order: OrderItem): Omit<OrderDB, 'id' | 'created_at' | 'updated_at'> & { id?: string } => ({
@@ -81,7 +82,7 @@ export const syncService = {
                     timestamp: new Date().toISOString()
                 };
                 localStorage.setItem(GLOBAL_NOTIF_KEY, JSON.stringify(notif));
-                window.dispatchEvent(new Event('storage'));
+                window.dispatchEvent(new CustomEvent(GLOBAL_NOTIF_EVENT, { detail: notif }));
 
                 return updatedItem;
             }
@@ -177,7 +178,6 @@ export const syncService = {
             const chatHistory = JSON.parse(localStorage.getItem(CLOUD_CHAT_KEY) || '[]');
             chatHistory.push(msg);
             localStorage.setItem(CLOUD_CHAT_KEY, JSON.stringify(chatHistory));
-            window.dispatchEvent(new Event('storage'));
         } catch (e) {
             console.error("Chat Error:", e);
         }

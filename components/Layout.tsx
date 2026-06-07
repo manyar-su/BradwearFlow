@@ -108,45 +108,56 @@ const Layout: React.FC<LayoutProps> = ({
         )}
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto no-scrollbar smooth-scroll pb-24 px-4 md:px-8" style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
+        <main
+          className="flex-1 overflow-y-auto no-scrollbar smooth-scroll px-4 md:px-8"
+          style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', paddingBottom: 'calc(6.25rem + env(safe-area-inset-bottom, 0px))' }}
+        >
           {children}
         </main>
 
         {/* Bottom Navigation */}
-        <div className={`absolute bottom-0 left-0 right-0 h-24 px-4 pb-safe z-50 transition-colors duration-300 rounded-t-[2.5rem] border-t ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.03)]'}`}>
-          <nav className="relative flex items-center h-20 w-full">
+        <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
+          <div className="w-full max-w-4xl mx-auto px-4 pointer-events-auto">
+            <div
+              className={`transition-colors duration-300 rounded-t-[2.5rem] border-t ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-[0_-10px_30px_rgba(0,0,0,0.03)]'}`}
+              style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+            >
+              <nav className="relative flex items-center h-[88px] w-full">
 
             {/* Animated Active Indicator */}
             <div
-              className="absolute top-1/2 -translate-y-1/2 transition-all duration-500 ease-[cubic-bezier(0.19,1,0.22,1)]"
+              className="absolute transition-all duration-500 ease-[cubic-bezier(0.19,1,0.22,1)]"
               style={{
                 width: `${100 / navItems.length}%`,
                 left: `${(activeIndex * 100) / navItems.length}%`,
                 padding: '0 6px',
-                height: '64px'
+                top: '8px',
+                height: '58px'
               }}
             >
               <div className="w-full h-full bg-[#10b981] rounded-[1.8rem] shadow-xl shadow-emerald-500/20 ring-4 ring-emerald-500/5" />
             </div>
 
-            {navItems.map((item, idx) => {
-              const Icon = item.icon;
-              const isActive = idx === activeIndex;
+                {navItems.map((item, idx) => {
+                  const Icon = item.icon;
+                  const isActive = idx === activeIndex;
 
-              return (
-                <button
-                  key={item.view}
-                  onClick={() => item.view === 'SCAN' ? onScanClick() : onViewChange(item.view as ViewState)}
-                  className={`relative z-10 flex flex-col items-center justify-center flex-1 h-full transition-all duration-300 ${isActive ? 'text-white' : isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}
-                >
-                  <Icon size={isActive ? 20 : 22} strokeWidth={isActive ? 2.5 : 2} />
-                  <span className={`text-[9px] font-black uppercase tracking-tighter mt-1 transition-all ${isActive ? 'opacity-100 translate-y-0.5' : 'opacity-60'}`}>
-                    {item.label}
-                  </span>
-                </button>
-              );
-            })}
-          </nav>
+                  return (
+                    <button
+                      key={item.view}
+                      onClick={() => item.view === 'SCAN' ? onScanClick() : onViewChange(item.view as ViewState)}
+                      className={`relative z-10 flex flex-col items-center justify-center flex-1 h-full transition-all duration-300 ${isActive ? 'text-white -translate-y-1' : isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}
+                    >
+                      <Icon size={isActive ? 20 : 22} strokeWidth={isActive ? 2.5 : 2} />
+                      <span className={`text-[9px] font-black uppercase tracking-tighter transition-all ${isActive ? 'opacity-100 mt-0.5' : 'opacity-60 mt-1'}`}>
+                        {item.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+          </div>
         </div>
       </div>
     </div>

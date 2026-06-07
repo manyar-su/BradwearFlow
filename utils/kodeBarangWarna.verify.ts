@@ -21,7 +21,9 @@ const kodeBarangTests = [
   { input: '1234', expected: true, desc: '4 digits' },
   { input: '5678', expected: true, desc: '4 digits' },
   { input: 'TDP', expected: true, desc: 'TDP special case' },
+  { input: 'TDP4567', expected: true, desc: 'TDP prefixed code' },
   { input: 'tdp', expected: true, desc: 'TDP lowercase' },
+  { input: 'tdp890', expected: true, desc: 'TDP lowercase prefixed code' },
   { input: 'B011', expected: false, desc: 'has letter' },
   { input: 'B0299', expected: false, desc: 'has letter' },
   { input: '12345', expected: false, desc: '5 digits' },
@@ -120,6 +122,7 @@ const validateKodeTests = [
   { input: '1234', expected: '1234', desc: 'valid 4 digits' },
   { input: 'tdp', expected: 'TDP', desc: 'TDP uppercase conversion' },
   { input: 'TDP', expected: 'TDP', desc: 'TDP already uppercase' },
+  { input: 'tdp4567', expected: 'TDP4567', desc: 'TDP prefixed code uppercase conversion' },
   { input: 'B011', expected: null, desc: 'invalid - has letter' },
   { input: '12345', expected: null, desc: 'invalid - 5 digits' },
 ];

@@ -871,7 +871,7 @@ const AccountScreen = ({ isDarkMode, orders = [], deletedOrders = [], onRestore,
                   <div className="flex gap-1.5">
                     <button
                       onClick={() => {
-                        const ids = Array.from(trashSelectedIds);
+                        const ids: string[] = Array.from(trashSelectedIds);
                         ids.forEach(id => onRestore(id));
                         setTrashSelectedIds(new Set());
                       }}
@@ -886,7 +886,7 @@ const AccountScreen = ({ isDarkMode, orders = [], deletedOrders = [], onRestore,
                           message: `Hapus ${trashSelectedIds.size} data selamanya? Tidak bisa dikembalikan.`,
                           type: 'danger',
                           onConfirm: () => {
-                            const ids = Array.from(trashSelectedIds);
+                            const ids: string[] = Array.from(trashSelectedIds);
                             if (onBulkPermanentDelete) {
                               onBulkPermanentDelete(ids);
                             } else {

@@ -25,6 +25,9 @@ const GREETINGS = [
   "Hampir selesai! Lagi cocokin data rekapannya..."
 ];
 
+const GLOBAL_NOTIF_KEY = 'bradwear_global_notif';
+const GLOBAL_NOTIF_EVENT = 'bradwear-global-notif';
+
 const INDO_MONTHS: Record<string, number> = {
   'januari': 0, 'februari': 1, 'maret': 2, 'april': 3, 'mei': 4, 'juni': 5,
   'juli': 6, 'agustus': 7, 'september': 8, 'oktober': 9, 'november': 10, 'desember': 11
@@ -51,6 +54,51 @@ const parseIndoDate = (dateStr: string): Date | null => {
 
 const isValidDate = (date: any): date is Date => {
   return date instanceof Date && !isNaN(date.getTime());
+};
+
+const TAILOR_NAMES = ["Maris", "Ferry", "Aan", "Farid", "Opik", "Fadil", "Asep", "Abdul", "Hadi", "Epul"];
+const TAILOR_NAME_SET = new Set(TAILOR_NAMES.map((name) => name.toLowerCase()));
+
+const normalizeTailorName = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const cleaned = value.trim();
+  if (!cleaned) return undefined;
+  return TAILOR_NAMES.find((name) => name.toLowerCase() === cleaned.toLowerCase());
+};
+
+const flattenExtractedSizeDetails = (sizeDetails: any[] = []) => {
+  const flattened: any[] = [];
+
+  sizeDetails.forEach((detail) => {
+    if (!detail || typeof detail !== 'object') return;
+
+    if (Array.isArray(detail.sizes) && detail.sizes.length > 0) {
+      detail.sizes.forEach((sizeItem: any) => {
+        const nestedTailor =
+          normalizeTailorName(sizeItem?.namaPenjahit) ||
+          normalizeTailorName(sizeItem?.namaPerSize) ||
+          normalizeTailorName(detail.namaPenjahit);
+
+        flattened.push({
+          ...detail,
+          ...sizeItem,
+          sizes: undefined,
+          namaPenjahit: nestedTailor || detail.namaPenjahit || '',
+          namaPerSize: nestedTailor && normalizeTailorName(sizeItem?.namaPerSize) ? undefined : sizeItem?.namaPerSize,
+        });
+      });
+      return;
+    }
+
+    const directTailor = normalizeTailorName(detail.namaPenjahit) || normalizeTailorName(detail.namaPerSize);
+    flattened.push({
+      ...detail,
+      namaPenjahit: directTailor || detail.namaPenjahit || '',
+      namaPerSize: directTailor && normalizeTailorName(detail.namaPerSize) ? undefined : detail.namaPerSize,
+    });
+  });
+
+  return flattened;
 };
 
 const App: React.FC = () => {
@@ -108,6 +156,14 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+    const showGlobalNotification = (notif: { sender: string; kode: string; type?: 'ADD' | 'DELETE' }) => {
+      const profileName = localStorage.getItem('profileName') || 'Nama Anda';
+      if (notif.sender !== profileName) {
+        setGlobalNotification(notif);
+        setTimeout(() => setGlobalNotification(null), 5000);
+      }
+    };
+
     const saved = localStorage.getItem('tailor_orders');
     if (saved) {
       try {
@@ -144,20 +200,25 @@ const App: React.FC = () => {
     if (savedPending) setScanResult(JSON.parse(savedPending));
 
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === 'bradwear_global_notif' && e.newValue) {
+      if (e.key === GLOBAL_NOTIF_KEY && e.newValue) {
         try {
           const notif = JSON.parse(e.newValue);
           if (notif && notif.sender && notif.kode) {
-            const profileName = localStorage.getItem('profileName') || 'Nama Anda';
-            if (notif.sender !== profileName) {
-              setGlobalNotification(notif);
-              setTimeout(() => setGlobalNotification(null), 5000);
-            }
+            showGlobalNotification(notif);
           }
         } catch { }
       }
     };
+
+    const handleLocalNotification = (e: Event) => {
+      const notif = (e as CustomEvent<{ sender: string; kode: string; type?: 'ADD' | 'DELETE' }>).detail;
+      if (notif?.sender && notif?.kode) {
+        showGlobalNotification(notif);
+      }
+    };
+
     window.addEventListener('storage', handleStorage);
+    window.addEventListener(GLOBAL_NOTIF_EVENT, handleLocalNotification as EventListener);
 
     const handleOnline = () => {
       setIsOffline(false);
@@ -241,7 +302,7 @@ const App: React.FC = () => {
     // Fallback: jika lokal kosong, hydrate sekali dari cloud khusus milik penjahit login.
     const hydrateLocalFromCloudIfEmpty = async () => {
       const profileName = (localStorage.getItem('profileName') || '').trim();
-      if (!profileName || profileName === 'Nama Anda') return;
+      const hasValidProfile = !!profileName && profileName !== 'Nama Anda';
 
       setOrders(prev => {
         const hasLocalForProfile = prev.some(
@@ -259,15 +320,19 @@ const App: React.FC = () => {
           return [];
         }
       })();
-      const hasLocalForProfile = currentLocal.some(
-        o => (o.namaPenjahit || '').toLowerCase().trim() === profileName.toLowerCase()
-      );
+      const hasLocalForProfile = hasValidProfile
+        ? currentLocal.some(
+            o => (o.namaPenjahit || '').toLowerCase().trim() === profileName.toLowerCase()
+          )
+        : currentLocal.length > 0;
       if (hasLocalForProfile) return;
 
       const cloudOrders = await syncService.getGlobalOrders();
-      const mineFromCloud = cloudOrders.filter(
-        o => (o.namaPenjahit || '').toLowerCase().trim() === profileName.toLowerCase().trim()
-      );
+      const mineFromCloud = hasValidProfile
+        ? cloudOrders.filter(
+            o => (o.namaPenjahit || '').toLowerCase().trim() === profileName.toLowerCase().trim()
+          )
+        : cloudOrders;
       if (mineFromCloud.length === 0) return;
 
       setOrders(prev => {
@@ -309,6 +374,7 @@ const App: React.FC = () => {
 
     return () => {
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(GLOBAL_NOTIF_EVENT, handleLocalNotification as EventListener);
       if (orderSubscription) syncService.unsubscribe(orderSubscription);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
@@ -379,8 +445,11 @@ const App: React.FC = () => {
       if (!isScanningRef.current) return;
 
       if (extracted) {
-        let finalSizeDetails = extracted.sizeDetails || [];
-        const anyTailorMentioned = finalSizeDetails.some((sd: any) => sd.namaPenjahit && sd.namaPenjahit.trim() !== '');
+        let finalSizeDetails = flattenExtractedSizeDetails(extracted.sizeDetails || []);
+        const anyTailorMentioned = finalSizeDetails.some((sd: any) => {
+          const tailorName = typeof sd.namaPenjahit === 'string' ? sd.namaPenjahit.toLowerCase().trim() : '';
+          return !!tailorName && TAILOR_NAME_SET.has(tailorName);
+        });
 
         if (anyTailorMentioned && profileName) {
           // Ada nama penjahit di rekapan — ambil hanya yang cocok dengan user login
@@ -396,7 +465,7 @@ const App: React.FC = () => {
         // Assign namaPenjahit ke profileName untuk semua size yang lolos filter
         finalSizeDetails = finalSizeDetails.map((sd: any) => ({
           ...sd,
-          namaPenjahit: profileName || sd.namaPenjahit || ''
+          namaPenjahit: sd.namaPenjahit || profileName || ''
         }));
 
         const savedCharts = localStorage.getItem('bradwear_size_charts');

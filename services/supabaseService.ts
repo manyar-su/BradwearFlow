@@ -1,13 +1,16 @@
 import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key';
+const SUPABASE_KEY =
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    import.meta.env.VITE_SUPABASE_ANON_KEY ||
+    'placeholder-key';
 
-if (!import.meta.env.VITE_SUPABASE_URL) {
-    console.warn('⚠️ VITE_SUPABASE_URL is missing in .env');
+if (!import.meta.env.VITE_SUPABASE_URL || (!import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY && !import.meta.env.VITE_SUPABASE_ANON_KEY)) {
+    console.warn('⚠️ Supabase env key/url is missing in .env');
 }
 
-export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Types
 export interface ChatMessageDB {

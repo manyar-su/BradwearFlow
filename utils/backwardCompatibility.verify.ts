@@ -7,7 +7,7 @@
  */
 
 import { deserializeSizeDetails, serializeSizeGroups } from './sizeGrouping';
-import { SizeDetail, JenisBarang, ModelCelana, ModelRompi } from '../types';
+import { SizeDetail, JenisBarang, ModelCelana, ModelRompi, SakuColor, SakuType } from '../types';
 
 console.log('=== Backward Compatibility Verification ===\n');
 
@@ -233,8 +233,8 @@ const dataWithSharedAttrs: SizeDetail[] = [
     tangan: 'Pendek',
     warna: 'Biru',
     model: 'Brad V3',
-    sakuType: 'Polos',
-    sakuColor: 'Abu',
+    sakuType: SakuType.POLOS,
+    sakuColor: SakuColor.ABU,
   },
   {
     size: 'L',
@@ -243,8 +243,8 @@ const dataWithSharedAttrs: SizeDetail[] = [
     tangan: 'Pendek',
     warna: 'Biru',
     model: 'Brad V3',
-    sakuType: 'Polos',
-    sakuColor: 'Abu',
+    sakuType: SakuType.POLOS,
+    sakuColor: SakuColor.ABU,
   },
 ];
 
@@ -259,7 +259,7 @@ console.log('Result:', {
 });
 const test7Pass = sharedGroup?.warna === 'Biru' && 
   sharedGroup?.model === 'Brad V3' &&
-  sharedGroup?.sakuType === 'Polos';
+  sharedGroup?.sakuType === SakuType.POLOS;
 console.log(test7Pass ? '✓ PASS\n' : '✗ FAIL\n');
 
 // Test 8: Empty data handling

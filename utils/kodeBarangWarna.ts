@@ -14,11 +14,13 @@
 export function isValidKodeBarang(code: string): boolean {
   if (!code) return false;
   
-  // Special case: TDP
-  if (code.toUpperCase() === 'TDP') return true;
+  const normalized = code.trim().toUpperCase();
+  
+  // Special case: TDP or TDP-prefixed code
+  if (/^TDP\d*$/.test(normalized)) return true;
   
   // Must be exactly 4 digits
-  return /^\d{4}$/.test(code);
+  return /^\d{4}$/.test(normalized);
 }
 
 /**
